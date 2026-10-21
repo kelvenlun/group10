@@ -33,8 +33,8 @@
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     
     <div id="instructions">
-        操作說明：<span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> 或 <span class="key">方向鍵</span> 移動<br>
-        進階技巧：按 <span class="key">空白鍵</span> 消耗1節身體進行極速衝刺
+        操作說明：<span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> 或是 <span class="key">方向鍵</span> 移動<br>
+        進階技巧：按 <span class="key">空白鍵</span> 衝刺 / 按 <span class="key">ESC</span> 暫停遊戲
     </div>
 
 <script>
@@ -50,8 +50,8 @@
     const COLS = WIDTH / GRID_SIZE;
     const ROWS = HEIGHT / GRID_SIZE;
 
-    // 遊戲狀態
-    const STATE_MENU = 0, STATE_PLAYING = 1, STATE_GAMEOVER = 2, STATE_WIN = 3;
+    // 遊戲狀態 (新增 STATE_PAUSED 暫停狀態)
+    const STATE_MENU = 0, STATE_PLAYING = 1, STATE_GAMEOVER = 2, STATE_WIN = 3, STATE_PAUSED = 4;
     let state = STATE_MENU;
 
     // 顏色定義
@@ -75,11 +75,26 @@
     let mouseClicked = false;
     let nextDir = { x: 1, y: 0 }; 
 
-    // 修正 JavaScript 對負數取餘數的 Bug (實現完美穿牆)
     const mod = (n, m) => ((n % m) + m) % m;
     const isSame = (a, b) => a[0] === b[0] && a[1] === b[1];
     const contains = (arr, node) => arr.some(n => isSame(n, node));
 
     // ==========================================
-    // 2. 貪婪追擊 AI：直接找最近距離的上下左右
+    // 2. 貪婪追擊 AI：直線追擊
     // ==========================================
+    function getGreedyNextStep(start, target) {
+        let [x, y] = start;
+        let [tx, ty] = target;
+        let dx = 0, dy = 0;
+        
+        let distX = tx - x;
+        if (Math.abs(distX) > COLS / 2) distX = distX > 0 ? distX - COLS : distX + COLS;
+        
+        let distY = ty - y;
+        if (Math.abs(distY) > ROWS / 2) distY = distY > 0 ? distY - ROWS : distY + ROWS;
+
+        if (Math.abs(distX) > Math.abs(distY)) {
+            dx = distX > 0 ? 1 : -1;
+        } else if (Math.abs(distY) > 0) {
+            dy = distY > 0 ? 1 : -1;
+        } else
