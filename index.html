@@ -33,8 +33,8 @@
     <canvas id="gameCanvas" width="800" height="600"></canvas>
     
     <div id="instructions">
-        操作說明：<span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> 或 <span class="key">方向鍵</span> 移動<br>
-        進階技巧：按 <span class="key">空白鍵</span> 消耗1節身體進行極速衝刺
+        操作說明：<span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> 或是 <span class="key">方向鍵</span> 移動<br>
+        進階技巧：按 <span class="key">空白鍵</span> 衝刺 / 按 <span class="key">ESC</span> 暫停遊戲
     </div>
 
 <script>
@@ -50,8 +50,8 @@
     const COLS = WIDTH / GRID_SIZE;
     const ROWS = HEIGHT / GRID_SIZE;
 
-    // 遊戲狀態
-    const STATE_MENU = 0, STATE_PLAYING = 1, STATE_GAMEOVER = 2, STATE_WIN = 3;
+    // 遊戲狀態 (新增 STATE_QUIT 結束畫面狀態)
+    const STATE_MENU = 0, STATE_PLAYING = 1, STATE_GAMEOVER = 2, STATE_WIN = 3, STATE_PAUSED = 4, STATE_QUIT = 5;
     let state = STATE_MENU;
 
     // 顏色定義
@@ -73,46 +73,40 @@
     // 輸入控制
     let mousePos = { x: 0, y: 0 };
     let mouseClicked = false;
-    let nextDir = { x: 1, y: 0 }; // 防止一幀內按兩次按鍵導致回頭自殺
+    let nextDir = { x: 1, y: 0 }; 
 
-    // 修正 JavaScript 對負數取餘數的 Bug (實現完美穿牆)
     const mod = (n, m) => ((n % m) + m) % m;
-
-    // 陣列座標比對工具
     const isSame = (a, b) => a[0] === b[0] && a[1] === b[1];
     const contains = (arr, node) => arr.some(n => isSame(n, node));
 
     // ==========================================
-    // 2. 進階 AI：BFS 尋路演算法 (JavaScript版)
+    // 2. 貪婪追擊 AI：直線追擊
     // ==========================================
-    function getBfsNextStep(start, target, obstacles) {
-        let queue = [{ curr: start, path: [] }];
-        let visited = new Set();
-        visited.add(`${start[0]},${start[1]}`);
+    function getGreedyNextStep(start, target) {
+        let [x, y] = start;
+        let [tx, ty] = target;
+        let dx = 0, dy = 0;
+        
+        let distX = tx - x;
+        if (Math.abs(distX) > COLS / 2) distX = distX > 0 ? distX - COLS : distX + COLS;
+        
+        let distY = ty - y;
+        if (Math.abs(distY) > ROWS / 2) distY = distY > 0 ? distY - ROWS : distY + ROWS;
 
-        while (queue.length > 0) {
-            let { curr, path } = queue.shift();
-            
-            if (isSame(curr, target)) return path.length > 0 ? path[0] : start;
-
-            let [x, y] = curr;
-            let neighbors = [
-                [mod(x + 1, COLS), y], [mod(x - 1, COLS), y],
-                [x, mod(y + 1, ROWS)], [x, mod(y - 1, ROWS)]
-            ];
-
-            for (let n of neighbors) {
-                let key = `${n[0]},${n[1]}`;
-                // 若未拜訪過，且 (不是障礙物 或者 就是玩家頭部目標)
-                if (!visited.has(key) && (!contains(obstacles, n) || isSame(n, target))) {
-                    visited.add(key);
-                    queue.push({ curr: n, path: [...path, n] });
-                }
-            }
+        if (Math.abs(distX) > Math.abs(distY)) {
+            dx = distX > 0 ? 1 : -1;
+        } else if (Math.abs(distY) > 0) {
+            dy = distY > 0 ? 1 : -1;
+        } else {
+             dx = distX > 0 ? 1 : (distX < 0 ? -1 : 0);
         }
-        return null;
+
+        return [mod(x + dx, COLS), mod(y + dy, ROWS)];
     }
 
+    // ==========================================
+    // 3. 遊戲物件生成與初始化
+    // ==========================================
     function spawnItem(avoidList1, avoidList2) {
         let item;
         while (true) {
@@ -145,7 +139,7 @@
     }
 
     // ==========================================
-    // 3. 事件監聽
+    // 4. 事件監聽 (鍵盤與滑鼠)
     // ==========================================
     canvas.addEventListener('mousemove', e => {
         let rect = canvas.getBoundingClientRect();
@@ -155,6 +149,15 @@
     canvas.addEventListener('mousedown', () => mouseClicked = true);
 
     window.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            if (state === STATE_PLAYING) {
+                state = STATE_PAUSED;
+            } else if (state === STATE_PAUSED) {
+                state = STATE_PLAYING;
+            }
+            return;
+        }
+
         if (state !== STATE_PLAYING) return;
         
         if (['ArrowUp', 'w', 'W'].includes(e.key) && playerDir.y !== 1) nextDir = { x: 0, y: -1 };
@@ -162,7 +165,6 @@
         else if (['ArrowLeft', 'a', 'A'].includes(e.key) && playerDir.x !== 1) nextDir = { x: -1, y: 0 };
         else if (['ArrowRight', 'd', 'D'].includes(e.key) && playerDir.x !== -1) nextDir = { x: 1, y: 0 };
         
-        // 空白鍵脫皮衝刺
         if (e.code === 'Space' && playerSnake.length > 3) {
             e.preventDefault();
             playerSnake.pop();
@@ -172,7 +174,7 @@
     });
 
     // ==========================================
-    // 4. 繪製與邏輯更新迴圈
+    // 5. 繪製與邏輯更新迴圈
     // ==========================================
     function drawButton(text, x, y, w, h) {
         let isHovered = mousePos.x >= x && mousePos.x <= x + w && mousePos.y >= y && mousePos.y <= y + h;
@@ -202,78 +204,82 @@
         for (let y = 0; y < HEIGHT; y += GRID_SIZE) { ctx.moveTo(0, y); ctx.lineTo(WIDTH, y); }
         ctx.stroke();
 
+        // --- 主畫面 ---
         if (state === STATE_MENU) {
             ctx.fillStyle = COLORS.lightGreen; ctx.font = '64px sans-serif';
-            ctx.textAlign = 'center'; ctx.fillText("SNAKE ESCAPE", WIDTH/2, HEIGHT/2 - 80);
+            ctx.textAlign = 'center'; ctx.fillText("SNAKE ESCAPE", WIDTH/2, HEIGHT/2 - 100);
             ctx.fillStyle = COLORS.white; ctx.font = '24px sans-serif';
-            ctx.fillText("Group 10 Project", WIDTH/2, HEIGHT/2 - 20);
+            ctx.fillText("Group 10 Project", WIDTH/2, HEIGHT/2 - 40);
 
-            if (drawButton("START GAME", WIDTH/2 - 100, HEIGHT/2 + 40, 200, 50) && mouseClicked) {
+            // PLAY 開始遊戲
+            if (drawButton("PLAY", WIDTH/2 - 100, HEIGHT/2 + 20, 200, 50) && mouseClicked) {
                 initGameVars();
                 state = STATE_PLAYING;
             }
+            // QUIT 結束遊戲
+            if (drawButton("QUIT", WIDTH/2 - 100, HEIGHT/2 + 85, 200, 50) && mouseClicked) {
+                state = STATE_QUIT;
+                window.close(); // 嘗試關閉視窗 (若被瀏覽器阻擋則進入結束畫面)
+            }
 
-        } else if (state === STATE_PLAYING) {
-            if (invincibleTimer > 0) invincibleTimer--;
+        // --- 遊玩中與暫停狀態 ---
+        } else if (state === STATE_PLAYING || state === STATE_PAUSED) {
+            
+            if (state === STATE_PLAYING) {
+                if (invincibleTimer > 0) invincibleTimer--;
+                let currentDelay = dashSpeedFrames > 0 ? 30 : Math.max(40, 180 - (score * 20));
 
-            let currentDelay = dashSpeedFrames > 0 ? 30 : Math.max(40, 180 - (score * 20));
+                if (timestamp - lastMoveTime > currentDelay) {
+                    if (dashSpeedFrames > 0) dashSpeedFrames--;
+                    playerDir = nextDir;
 
-            if (timestamp - lastMoveTime > currentDelay) {
-                if (dashSpeedFrames > 0) dashSpeedFrames--;
-                playerDir = nextDir;
+                    let head = playerSnake[0];
+                    let newHead = [mod(head[0] + playerDir.x, COLS), mod(head[1] + playerDir.y, ROWS)];
+                    playerSnake.unshift(newHead);
 
-                // 玩家移動
-                let head = playerSnake[0];
-                let newHead = [mod(head[0] + playerDir.x, COLS), mod(head[1] + playerDir.y, ROWS)];
-                playerSnake.unshift(newHead);
-
-                // 物品拾取
-                if (isSame(newHead, food)) {
-                    score++;
-                    if (score < targetScore) food = spawnItem(playerSnake, null);
-                    else { food = [-1, -1]; exitPos = [Math.floor(COLS/2), 0]; }
-                } else {
-                    playerSnake.pop();
-                }
-
-                if (isSame(newHead, shieldItem)) {
-                    hasShield = true;
-                    shieldItem = [-1, -1];
-                }
-
-                if (exitPos && isSame(newHead, exitPos)) state = STATE_WIN;
-
-                // 敵方 AI
-                enemyMoveCounter++;
-                if (enemyMoveCounter % 3 !== 0) {
-                    let allObstacles = [...playerSnake];
-                    enemySnakes.forEach(eSnake => {
-                        let nextStep = getBfsNextStep(eSnake[0], playerSnake[0], allObstacles);
-                        if (nextStep) eSnake.unshift(nextStep);
-                        else eSnake.unshift([...eSnake[0]]); // 原地不動
-                        eSnake.pop();
-                    });
-                }
-
-                // 碰撞判定
-                let collision = false;
-                if (contains(playerSnake.slice(1), newHead)) collision = true;
-                enemySnakes.forEach(eSnake => {
-                    if (contains(eSnake, newHead) || playerSnake.some(seg => contains(eSnake, seg))) {
-                        collision = true;
-                    }
-                });
-
-                if (collision) {
-                    if (invincibleTimer > 0) { /* 無敵穿透 */ } 
-                    else if (hasShield) {
-                        hasShield = false;
-                        invincibleTimer = 90; // 約 1.5 秒無敵
+                    if (isSame(newHead, food)) {
+                        score++;
+                        if (score < targetScore) food = spawnItem(playerSnake, null);
+                        else { food = [-1, -1]; exitPos = [Math.floor(COLS/2), 0]; }
                     } else {
-                        state = STATE_GAMEOVER;
+                        playerSnake.pop();
                     }
+
+                    if (isSame(newHead, shieldItem)) {
+                        hasShield = true;
+                        shieldItem = [-1, -1];
+                    }
+
+                    if (exitPos && isSame(newHead, exitPos)) state = STATE_WIN;
+
+                    enemyMoveCounter++;
+                    if (enemyMoveCounter % 3 !== 0) {
+                        enemySnakes.forEach(eSnake => {
+                            let nextStep = getGreedyNextStep(eSnake[0], playerSnake[0]);
+                            eSnake.unshift(nextStep);
+                            eSnake.pop();
+                        });
+                    }
+
+                    let collision = false;
+                    if (contains(playerSnake.slice(1), newHead)) collision = true;
+                    enemySnakes.forEach(eSnake => {
+                        if (contains(eSnake, newHead) || playerSnake.some(seg => contains(eSnake, seg))) {
+                            collision = true;
+                        }
+                    });
+
+                    if (collision) {
+                        if (invincibleTimer > 0) { } 
+                        else if (hasShield) {
+                            hasShield = false;
+                            invincibleTimer = 90;
+                        } else {
+                            state = STATE_GAMEOVER;
+                        }
+                    }
+                    lastMoveTime = timestamp;
                 }
-                lastMoveTime = timestamp;
             }
 
             // 繪製遊戲物件
@@ -299,25 +305,53 @@
                 drawRect(pos, color);
             });
 
-            // UI
             ctx.fillStyle = COLORS.white; ctx.font = '20px sans-serif'; ctx.textAlign = 'left';
             ctx.fillText(`Keys: ${score}/${targetScore} ${hasShield ? '[SHIELD READY]' : ''}`, 10, 25);
 
+            // --- ESC 暫停選單 ---
+            if (state === STATE_PAUSED) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                ctx.fillStyle = COLORS.white; ctx.font = '64px sans-serif'; ctx.textAlign = 'center';
+                ctx.fillText("PAUSED", WIDTH/2, HEIGHT/2 - 80);
+
+                // CONTINUE 繼續遊戲
+                if (drawButton("CONTINUE", WIDTH/2 - 100, HEIGHT/2 + 10, 200, 50) && mouseClicked) {
+                    state = STATE_PLAYING;
+                }
+                // QUIT 回到主畫面
+                if (drawButton("QUIT", WIDTH/2 - 100, HEIGHT/2 + 75, 200, 50) && mouseClicked) {
+                    state = STATE_MENU;
+                }
+            }
+
+        // --- 結算畫面 ---
         } else if (state === STATE_GAMEOVER || state === STATE_WIN) {
             ctx.fillStyle = state === STATE_GAMEOVER ? COLORS.lightRed : COLORS.cyan;
             ctx.font = '64px sans-serif'; ctx.textAlign = 'center';
-            ctx.fillText(state === STATE_GAMEOVER ? "GAME OVER" : "SUCCESS!", WIDTH/2, HEIGHT/2 - 80);
+            ctx.fillText(state === STATE_GAMEOVER ? "GAME OVER" : "SUCCESS!", WIDTH/2, HEIGHT/2 - 100);
             
             ctx.fillStyle = COLORS.white; ctx.font = '24px sans-serif';
-            ctx.fillText(`Final Keys Collected: ${score}/${targetScore}`, WIDTH/2, HEIGHT/2 - 20);
+            ctx.fillText(`Final Keys Collected: ${score}/${targetScore}`, WIDTH/2, HEIGHT/2 - 40);
 
-            if (drawButton("RESTART", WIDTH/2 - 100, HEIGHT/2 + 40, 200, 50) && mouseClicked) {
+            if (drawButton("NEW GAME", WIDTH/2 - 100, HEIGHT/2 + 20, 200, 50) && mouseClicked) {
                 initGameVars();
                 state = STATE_PLAYING;
             }
+            if (drawButton("QUIT", WIDTH/2 - 100, HEIGHT/2 + 85, 200, 50) && mouseClicked) {
+                state = STATE_MENU;
+            }
+
+        // --- 結束遊戲畫面 ---
+        } else if (state === STATE_QUIT) {
+            ctx.fillStyle = COLORS.white; ctx.font = '48px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText("THANKS FOR PLAYING!", WIDTH/2, HEIGHT/2 - 30);
+            ctx.fillStyle = '#aaa'; ctx.font = '20px sans-serif';
+            ctx.fillText("您可以直接關閉此瀏覽器分頁", WIDTH/2, HEIGHT/2 + 20);
         }
 
-        mouseClicked = false; // 重置點擊狀態
+        mouseClicked = false;
     }
 
     // 啟動遊戲迴圈
